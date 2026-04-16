@@ -1,14 +1,14 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
-  prospectsApi, type Prospect, type ProspectStatus,
+  prospectsApi, scheduleApi, type Prospect, type ProspectStatus,
 } from '@/lib/api'
 import { useUIStore } from '@/store/uiStore'
 import { PriorityBadge } from '@/components/shared/PriorityBadge'
 import { SegmentTag } from '@/components/shared/SegmentTag'
 import { ActivityTimeline } from '@/components/outreach/ActivityTimeline'
 import { TemplateLibrary } from '@/components/outreach/TemplateLibrary'
-import { Zap, Search } from 'lucide-react'
+import { Zap, Search, X, Calendar } from 'lucide-react'
 
 type RightTab = 'timeline' | 'templates'
 
@@ -81,50 +81,212 @@ function ProspectSidebar({
   )
 }
 
-// ─── Prospect header strip ────────────────────────────────────────────────────
+// ─── Quick meeting modal ──────────────────────────────────────────────────────
 
-function ProspectHeader({ prospect }: { prospect: Prospect }) {
+function QuickMeetingModal({
+  prospect, eventId, onClose,
+}: { prospect: Prospect; eventId: number | null; onClose: () => void }) {
   const qc = useQueryClient()
+  const { currentUser } = useUIStore()
+  const [date, setDate] = useState('')
+  const [startTime, setStartTime] = useState('09:00')
+  const [endTime, setEndTime] = useState('09:30')
+  const [location, setLocation] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [gcalUrl, setGcalUrl] = useState('')
 
-  const updateStatus = useMutation({
-    mutationFn: (status: ProspectStatus) => prospectsApi.update(prospect.id, { status }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['prospects'] }),
-  })
+  const handleSave = async () => {
+    if (!date || !eventId) return
+    setSaving(true)
+    try {
+      const start = `${date}T${startTime}:00`
+      const end = `${date}T${endTime}:00`
+      await scheduleApi.create({
+        event_id: eventId,
+        prospect_id: prospect.id,
+        owner: currentUser,
+        title: `Meeting with ${prospect.first_name} ${prospect.last_name}`,
+        start_time: start,
+        end_time: end,
+        location: location || undefined,
+        is_pre_booked: true,
+      })
+      // Mark prospect as meeting_booked
+      await prospectsApi.update(prospect.id, { status: 'meeting_booked' })
+      qc.invalidateQueries({ queryKey: ['prospects'] })
+      qc.invalidateQueries({ queryKey: ['prospect', String(prospect.id)] })
+      qc.invalidateQueries({ queryKey: ['schedule'] })
+
+      // Build Google Calendar link
+      const fmt = (iso: string) =>
+        new Date(iso).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '')
+      const params = new URLSearchParams({
+        action: 'TEMPLATE',
+        text: `Meeting with ${prospect.first_name} ${prospect.last_name}`,
+        dates: `${fmt(start)}/${fmt(end)}`,
+        location: location,
+        details: `Conference meeting — ${prospect.title} at company`,
+      })
+      setGcalUrl(`https://calendar.google.com/calendar/render?${params.toString()}`)
+    } finally {
+      setSaving(false)
+    }
+  }
 
   return (
-    <div className="px-5 py-4 border-b border-gray-200 bg-white">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h2 className="font-semibold text-gray-900">
-            {prospect.first_name} {prospect.last_name}
-          </h2>
-          <p className="text-sm text-gray-500 mt-0.5">{prospect.title}</p>
-          <div className="flex gap-2 mt-2 flex-wrap">
-            <PriorityBadge priority={prospect.priority} />
-            <SegmentTag segment={prospect.segment} />
-          </div>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200">
+          <h3 className="font-semibold text-gray-900 text-sm">Schedule Meeting</h3>
+          <button onClick={onClose}><X className="w-4 h-4 text-gray-400" /></button>
         </div>
-        {/* Quick status chips */}
-        <div className="flex gap-1.5 flex-wrap shrink-0">
-          {(['contacted', 'replied', 'meeting_booked'] as ProspectStatus[]).map(s => (
-            <button
-              key={s}
-              onClick={() => updateStatus.mutate(s)}
-              className={`text-xs px-2.5 py-1 rounded-full border transition-colors font-medium ${
-                prospect.status === s
-                  ? 'bg-brand-700 text-white border-brand-700'
-                  : 'border-gray-300 text-gray-500 hover:bg-gray-50'
-              }`}
-            >
-              {s.replace('_', ' ')}
-            </button>
-          ))}
+        <div className="p-5 space-y-3">
+          <p className="text-sm text-gray-600">
+            With <span className="font-medium">{prospect.first_name} {prospect.last_name}</span>
+            <span className="text-gray-400"> · {prospect.title}</span>
+          </p>
+
+          {gcalUrl ? (
+            // Post-save: show Google Calendar link
+            <div className="space-y-3">
+              <div className="p-3 bg-green-50 rounded-lg border border-green-200 text-sm text-green-700 text-center">
+                ✓ Meeting saved & prospect marked as <strong>meeting booked</strong>
+              </div>
+              <a
+                href={gcalUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center justify-center gap-2 w-full py-2.5 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 transition-colors"
+              >
+                <Calendar className="w-4 h-4" />
+                Add to Google Calendar
+              </a>
+              <button onClick={onClose} className="btn-secondary w-full text-sm">Done</button>
+            </div>
+          ) : (
+            <>
+              <div>
+                <label className="label text-xs">Date</label>
+                <input type="date" className="input text-sm"
+                  value={date} onChange={e => setDate(e.target.value)} />
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="label text-xs">Start time</label>
+                  <input type="time" className="input text-sm"
+                    value={startTime} onChange={e => setStartTime(e.target.value)} />
+                </div>
+                <div>
+                  <label className="label text-xs">End time</label>
+                  <input type="time" className="input text-sm"
+                    value={endTime} onChange={e => setEndTime(e.target.value)} />
+                </div>
+              </div>
+              <div>
+                <label className="label text-xs">Location / Booth (optional)</label>
+                <input className="input text-sm" placeholder="e.g. Hall 3, Booth 12"
+                  value={location} onChange={e => setLocation(e.target.value)} />
+              </div>
+              {!eventId && (
+                <p className="text-xs text-amber-600">Select an event first from the sidebar.</p>
+              )}
+              <div className="flex gap-2 pt-1">
+                <button onClick={onClose} className="btn-secondary flex-1 text-sm">Cancel</button>
+                <button
+                  onClick={handleSave}
+                  disabled={saving || !date || !eventId}
+                  className="btn-primary flex-1 text-sm"
+                >
+                  {saving ? 'Saving…' : 'Save & Open Google Cal'}
+                </button>
+              </div>
+            </>
+          )}
         </div>
       </div>
-      {prospect.score_reason && (
-        <p className="text-xs text-gray-400 mt-2 italic">{prospect.score_reason}</p>
-      )}
     </div>
+  )
+}
+
+// ─── Prospect header strip ────────────────────────────────────────────────────
+
+function ProspectHeader({ prospectId }: { prospectId: number }) {
+  const qc = useQueryClient()
+  const { activeEventId } = useUIStore()
+  const [showMeetingModal, setShowMeetingModal] = useState(false)
+
+  // Fetch the live prospect so status refreshes after every mutation
+  const { data: prospect } = useQuery({
+    queryKey: ['prospect', String(prospectId)],
+    queryFn: () => prospectsApi.get(prospectId),
+  })
+
+  const updateStatus = useMutation({
+    mutationFn: (status: ProspectStatus) => prospectsApi.update(prospectId, { status }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['prospect', String(prospectId)] })
+      qc.invalidateQueries({ queryKey: ['prospects'] })
+    },
+  })
+
+  if (!prospect) return null
+
+  const STATUS_ACTIONS: { status: ProspectStatus; label: string; onClick: () => void }[] = [
+    { status: 'contacted',     label: 'contacted',     onClick: () => updateStatus.mutate('contacted') },
+    { status: 'replied',       label: 'replied',       onClick: () => updateStatus.mutate('replied') },
+    { status: 'meeting_booked',label: 'meeting booked',onClick: () => setShowMeetingModal(true) },
+  ]
+
+  return (
+    <>
+      <div className="px-5 py-4 border-b border-gray-200 bg-white">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h2 className="font-semibold text-gray-900">
+              {prospect.first_name} {prospect.last_name}
+            </h2>
+            <p className="text-sm text-gray-500 mt-0.5">{prospect.title}</p>
+            <div className="flex gap-2 mt-2 flex-wrap">
+              <PriorityBadge priority={prospect.priority} />
+              <SegmentTag segment={prospect.segment} />
+              {prospect.status !== 'new' && (
+                <span className="badge bg-gray-100 text-gray-600 capitalize text-xs">
+                  {prospect.status.replace('_', ' ')}
+                </span>
+              )}
+            </div>
+          </div>
+          {/* Quick status chips */}
+          <div className="flex gap-1.5 flex-wrap shrink-0">
+            {STATUS_ACTIONS.map(({ status, label, onClick }) => (
+              <button
+                key={status}
+                onClick={onClick}
+                disabled={updateStatus.isPending}
+                className={`text-xs px-2.5 py-1 rounded-full border transition-colors font-medium ${
+                  prospect.status === status
+                    ? 'bg-brand-700 text-white border-brand-700'
+                    : 'border-gray-300 text-gray-500 hover:bg-gray-50 active:bg-gray-100'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+        {prospect.score_reason && (
+          <p className="text-xs text-gray-400 mt-2 italic">{prospect.score_reason}</p>
+        )}
+      </div>
+
+      {showMeetingModal && (
+        <QuickMeetingModal
+          prospect={prospect}
+          eventId={activeEventId}
+          onClose={() => setShowMeetingModal(false)}
+        />
+      )}
+    </>
   )
 }
 
@@ -187,7 +349,7 @@ export default function OutreachHub() {
           </div>
         ) : (
           <>
-            <ProspectHeader prospect={selected} />
+            <ProspectHeader prospectId={selected.id} />
 
             {/* Tab bar */}
             <div className="flex border-b border-gray-200 bg-white px-5">
