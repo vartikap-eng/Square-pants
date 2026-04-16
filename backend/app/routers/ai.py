@@ -2,7 +2,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from pydantic import BaseModel
 
-from ..services.ai_service import generate_hooks, draft_message, transcribe_audio, scan_business_card
+from ..services.ai_service import generate_hooks, draft_message, transcribe_audio, scan_business_card, classify_image
 
 router = APIRouter(prefix="/ai", tags=["ai"])
 
@@ -85,3 +85,13 @@ async def scan_card(file: UploadFile = File(...)):
         raise HTTPException(status_code=413, detail="Image too large (max 10MB)")
     result = await scan_business_card(content)
     return result
+
+
+@router.post("/classify-image")
+async def classify_image_endpoint(file: UploadFile = File(...)):
+    """Returns {'image_type': 'business_card'} or {'image_type': 'photo'}."""
+    content = await file.read()
+    if len(content) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Image too large (max 10MB)")
+    image_type = await classify_image(content)
+    return {"image_type": image_type}

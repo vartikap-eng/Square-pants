@@ -256,6 +256,12 @@ export const captureApi = {
   create: (data: unknown) => api.post<LeadCapture>('/capture', data).then(r => r.data),
   list: (params?: Record<string, unknown>) =>
     api.get<LeadCapture[]>('/capture', { params }).then(r => r.data),
+  uploadImage: (captureId: number, file: File, imageType: string) => {
+    const fd = new FormData()
+    fd.append('file', file)
+    fd.append('image_type', imageType)
+    return api.post(`/capture/${captureId}/images`, fd).then(r => r.data)
+  },
 }
 
 export const followupApi = {
@@ -292,6 +298,11 @@ export const aiApi = {
     const fd = new FormData()
     fd.append('file', file)
     return api.post('/ai/scan-card', fd).then(r => r.data)
+  },
+  classifyImage: (file: File) => {
+    const fd = new FormData()
+    fd.append('file', file)
+    return api.post<{ image_type: string }>('/ai/classify-image', fd).then(r => r.data)
   },
 }
 

@@ -45,3 +45,20 @@ class LeadCaptureRead(LeadCaptureBase):
 
 class CaptureSyncRequest(SQLModel):
     captures: list[LeadCaptureCreate]
+
+
+class CaptureImage(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    capture_id: int = Field(foreign_key="leadcapture.id", index=True)
+    filename: str
+    image_type: str = Field(default="photo")  # "business_card" or "photo"
+    file_path: str
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class CaptureImageRead(SQLModel):
+    id: int
+    capture_id: int
+    filename: str
+    image_type: str
+    created_at: datetime

@@ -19,6 +19,7 @@ export interface OfflineCapture {
   commitment_made?: string
   captured_at: string
   synced: boolean
+  prospect_id?: number
 }
 
 class ConferenceLeadDB extends Dexie {

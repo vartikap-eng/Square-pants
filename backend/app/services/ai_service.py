@@ -164,16 +164,42 @@ async def transcribe_audio(audio_bytes: bytes, filename: str = "audio.webm") -> 
     return transcript
 
 
+def _detect_mime(image_bytes: bytes) -> str:
+    if image_bytes[:4] == b'\x89PNG':
+        return "image/png"
+    elif image_bytes[:2] == b'\xff\xd8':
+        return "image/jpeg"
+    elif image_bytes[:4] in (b'GIF8', b'GIF9'):
+        return "image/gif"
+    return "image/jpeg"
+
+
+async def classify_image(image_bytes: bytes) -> str:
+    """Returns 'business_card' or 'photo'. Fast, single-word response."""
+    image_b64 = base64.b64encode(image_bytes).decode("utf-8")
+    mime = _detect_mime(image_bytes)
+
+    response = await client.chat.completions.create(
+        model="gpt-4o",
+        messages=[{
+            "role": "user",
+            "content": [
+                {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{image_b64}"}},
+                {"type": "text", "text": (
+                    "Look at this image. Is it a business card or conference badge? "
+                    "Reply with exactly one word: 'business_card' or 'photo'."
+                )},
+            ],
+        }],
+        max_tokens=10,
+    )
+    result = response.choices[0].message.content.strip().lower()
+    return "business_card" if "business_card" in result or "card" in result else "photo"
+
+
 async def scan_business_card(image_bytes: bytes) -> dict:
     image_b64 = base64.b64encode(image_bytes).decode("utf-8")
-
-    # Detect image type from magic bytes
-    if image_bytes[:4] == b'\x89PNG':
-        mime = "image/png"
-    elif image_bytes[:2] == b'\xff\xd8':
-        mime = "image/jpeg"
-    else:
-        mime = "image/jpeg"
+    mime = _detect_mime(image_bytes)
 
     response = await client.chat.completions.create(
         model="gpt-4o",

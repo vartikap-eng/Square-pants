@@ -1,10 +1,16 @@
+import os
+import uuid
 from datetime import datetime
 from typing import List, Optional
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, UploadFile, File, HTTPException
+from fastapi.responses import FileResponse
 from sqlmodel import Session, select
 
 from ..database import get_session
-from ..models.capture import LeadCapture, LeadCaptureCreate, LeadCaptureRead, CaptureSyncRequest
+from ..models.capture import LeadCapture, LeadCaptureCreate, LeadCaptureRead, CaptureSyncRequest, CaptureImage, CaptureImageRead
+
+UPLOAD_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "uploads", "captures")
+os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 router = APIRouter(prefix="/capture", tags=["capture"])
 
@@ -78,8 +84,53 @@ def list_captures(
 
 @router.get("/{capture_id}", response_model=LeadCaptureRead)
 def get_capture(capture_id: int, session: Session = Depends(get_session)):
-    from fastapi import HTTPException
     capture = session.get(LeadCapture, capture_id)
     if not capture:
         raise HTTPException(status_code=404, detail="Capture not found")
     return capture
+
+
+@router.post("/{capture_id}/images", response_model=CaptureImageRead)
+async def upload_capture_image(
+    capture_id: int,
+    file: UploadFile = File(...),
+    image_type: str = "photo",
+    session: Session = Depends(get_session),
+):
+    capture = session.get(LeadCapture, capture_id)
+    if not capture:
+        raise HTTPException(status_code=404, detail="Capture not found")
+
+    ext = os.path.splitext(file.filename or "image.jpg")[1] or ".jpg"
+    filename = f"{capture_id}_{uuid.uuid4().hex[:8]}{ext}"
+    file_path = os.path.join(UPLOAD_DIR, filename)
+
+    content = await file.read()
+    with open(file_path, "wb") as f:
+        f.write(content)
+
+    img = CaptureImage(
+        capture_id=capture_id,
+        filename=filename,
+        image_type=image_type,
+        file_path=file_path,
+    )
+    session.add(img)
+    session.commit()
+    session.refresh(img)
+    return img
+
+
+@router.get("/{capture_id}/images", response_model=List[CaptureImageRead])
+def list_capture_images(capture_id: int, session: Session = Depends(get_session)):
+    return session.exec(
+        select(CaptureImage).where(CaptureImage.capture_id == capture_id)
+    ).all()
+
+
+@router.get("/images/file/{filename}")
+def serve_image(filename: str):
+    path = os.path.join(UPLOAD_DIR, filename)
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="Image not found")
+    return FileResponse(path)
