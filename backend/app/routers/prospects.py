@@ -10,6 +10,7 @@ from ..models.prospect import (
 )
 from ..services.import_service import parse_and_import_csv
 from ..services.scoring_service import score_prospect
+from ..services.assignment_service import get_icp_reasoning, get_outreach_mode, assign_owner
 
 router = APIRouter(prefix="/prospects", tags=["prospects"])
 
@@ -127,3 +128,54 @@ def get_prospect_company(prospect_id: int, session: Session = Depends(get_sessio
     if not prospect.company_id:
         return None
     return session.get(Company, prospect.company_id)
+
+
+@router.get("/{prospect_id}/icp-reasoning")
+def get_prospect_icp_reasoning(prospect_id: int, session: Session = Depends(get_session)):
+    """Get detailed ICP reasoning for a prospect — company fit, stakeholder analysis, conversation starters."""
+    prospect = session.get(Prospect, prospect_id)
+    if not prospect:
+        raise HTTPException(status_code=404, detail="Prospect not found")
+
+    company = session.get(Company, prospect.company_id) if prospect.company_id else None
+    company_name = company.name if company else "Unknown Company"
+    company_type = company.type.value if company else "other"
+
+    return get_icp_reasoning(
+        company_name=company_name,
+        company_type=company_type,
+        title=prospect.title,
+        priority=prospect.priority,
+        score_reason=prospect.score_reason or "",
+    )
+
+
+@router.post("/auto-assign-owners")
+def auto_assign_owners(
+    event_id: Optional[int] = None,
+    session: Session = Depends(get_session),
+):
+    """Auto-assign owners and outreach modes to all unassigned prospects."""
+    query = select(Prospect)
+    if event_id:
+        query = query.where(Prospect.event_id == event_id)
+    prospects = session.exec(query).all()
+
+    updated = 0
+    for p in prospects:
+        changed = False
+        if not p.owner:
+            company = session.get(Company, p.company_id) if p.company_id else None
+            company_name = company.name if company else ""
+            p.owner = assign_owner(p.priority, p.segment, company_name)
+            changed = True
+        if not p.outreach_mode:
+            p.outreach_mode = get_outreach_mode(p.segment, p.priority)
+            changed = True
+        if changed:
+            p.updated_at = datetime.utcnow()
+            session.add(p)
+            updated += 1
+
+    session.commit()
+    return {"updated": updated, "total": len(prospects)}

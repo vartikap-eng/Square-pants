@@ -68,6 +68,7 @@ class ProspectBase(SQLModel):
     recent_funding: Optional[str] = None
     recent_job_change: Optional[str] = None
     notes: Optional[str] = None
+    outreach_mode: Optional[str] = None  # "BDR Multi-touch", "Senior Direct Call", etc.
 
 
 class Prospect(ProspectBase, table=True):

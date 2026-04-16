@@ -32,6 +32,7 @@ export interface Company {
   size_band?: string
   funding_stage?: string
   hq_country?: string
+  linkedin_url?: string
 }
 
 export interface Prospect {
@@ -56,6 +57,7 @@ export interface Prospect {
   recent_funding?: string
   recent_job_change?: string
   notes?: string
+  outreach_mode?: string
   created_at: string
   updated_at: string
 }
@@ -202,6 +204,9 @@ export const prospectsApi = {
   },
   rescore: (id: number) => api.post<Prospect>(`/prospects/${id}/rescore`).then(r => r.data),
   getCompany: (id: number) => api.get<Company>(`/prospects/${id}/company`).then(r => r.data),
+  getICPReasoning: (id: number) => api.get(`/prospects/${id}/icp-reasoning`).then(r => r.data),
+  autoAssignOwners: (eventId?: number) =>
+    api.post('/prospects/auto-assign-owners', null, { params: eventId ? { event_id: eventId } : {} }).then(r => r.data),
 }
 
 export const outreachApi = {
@@ -285,4 +290,44 @@ export const analyticsApi = {
   summary: (eventId?: number) =>
     api.get<AnalyticsSummary>('/analytics/summary', { params: eventId ? { event_id: eventId } : {} })
       .then(r => r.data),
+}
+
+export const linkedinApi = {
+  scrapeProfile: (profileUrl: string) =>
+    api.post<{
+      success: boolean
+      data: {
+        linkedin_bio: string
+        recent_posts: string
+        job_change: string
+        recent_funding: string
+        company_news: string
+        mutual_connections: string
+        _metadata?: {
+          full_name?: string
+          headline?: string
+          location?: string
+          current_company?: string
+          connections?: number
+          education?: string
+          skills?: string[]
+          profile_url?: string
+          scraped_at?: string
+        }
+      }
+    }>('/linkedin/scrape-profile', { profile_url: profileUrl }, { timeout: 180000 }).then(r => r.data),
+  sendMessage: (profileUrl: string, message: string) =>
+    api.post<{ success: boolean; message: string; sent_at?: string }>(
+      '/linkedin/send-message',
+      { profile_url: profileUrl, message },
+      { timeout: 180000 }
+    ).then(r => r.data),
+  checkStatus: () =>
+    api.get<{
+      configured: boolean
+      has_api_key: boolean
+      has_linkedin_cookie: boolean
+      features: Record<string, boolean>
+      daily_limits: Record<string, string>
+    }>('/linkedin/status').then(r => r.data),
 }
