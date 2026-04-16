@@ -12,14 +12,17 @@ class HookRequest(BaseModel):
     recent_posts: str = ""
     recent_funding: str = ""
     job_change: str = ""
+    mutual_connections: str = ""
+    company_news: str = ""
     prospect_name: str = ""
     company: str = ""
+    title: str = ""
 
 
 class MessageDraftRequest(BaseModel):
     hook: str
     channel: str
-    template: str = ""
+    template_body: str = ""   # full template body with merge fields already resolved
     prospect_name: str
     company: str
     title: str
@@ -28,20 +31,28 @@ class MessageDraftRequest(BaseModel):
 
 @router.post("/hooks")
 async def get_hooks(request: HookRequest):
-    if not any([request.linkedin_bio, request.recent_posts, request.recent_funding, request.job_change]):
+    has_data = any([
+        request.linkedin_bio, request.recent_posts, request.recent_funding,
+        request.job_change, request.mutual_connections, request.company_news,
+    ])
+    if not has_data:
         raise HTTPException(
             status_code=400,
-            detail="At least one LinkedIn data field must be provided"
+            detail="At least one research field must be provided"
         )
-    hooks = await generate_hooks(
+    result = await generate_hooks(
         linkedin_bio=request.linkedin_bio,
         recent_posts=request.recent_posts,
         recent_funding=request.recent_funding,
         job_change=request.job_change,
+        mutual_connections=request.mutual_connections,
+        company_news=request.company_news,
         prospect_name=request.prospect_name,
         company=request.company,
+        title=request.title,
     )
-    return {"hooks": hooks}
+    # result is {"summary": str, "hooks": [str, str, str]}
+    return result
 
 
 @router.post("/draft-message")
@@ -49,7 +60,7 @@ async def get_message_draft(request: MessageDraftRequest):
     message = await draft_message(
         hook=request.hook,
         channel=request.channel,
-        template=request.template,
+        template=request.template_body,
         prospect_name=request.prospect_name,
         company=request.company,
         title=request.title,

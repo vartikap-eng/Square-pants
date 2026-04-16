@@ -6,7 +6,9 @@ from .prospect import (
 from .outreach import (
     OutreachSequence, OutreachActivity, OutreachActivityCreate,
     OutreachSequenceCreate, OutreachSequenceRead,
-    OutreachChannel, ActivityStatus
+    OutreachChannel, ActivityStatus,
+    OutreachTemplate, OutreachTemplateCreate, OutreachTemplateUpdate, OutreachTemplateRead,
+    ProspectResearch, ProspectResearchUpsert, ProspectResearchRead,
 )
 from .capture import LeadCapture, LeadCaptureCreate, LeadCaptureRead, CaptureSyncRequest
 from .followup import (

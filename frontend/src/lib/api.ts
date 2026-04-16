@@ -111,6 +111,60 @@ export interface Meeting {
   created_at: string
 }
 
+export type ActivityStatus = 'pending' | 'sent' | 'opened' | 'replied' | 'bounced' | 'skipped'
+
+export interface OutreachActivity {
+  id: number
+  prospect_id: number
+  sequence_id?: number
+  channel: OutreachChannel
+  step_number: number
+  subject?: string
+  body?: string
+  status: ActivityStatus
+  sent_at?: string
+  opened_at?: string
+  replied_at?: string
+  notes?: string
+  created_at: string
+}
+
+export interface OutreachTemplate {
+  id: number
+  name: string
+  channel: OutreachChannel | 'call'
+  segment: string
+  subject?: string
+  body: string
+  tags?: string
+  is_default: boolean
+  created_at: string
+}
+
+export interface MergeField {
+  field: string
+  description: string
+}
+
+export interface ProspectResearch {
+  id: number
+  prospect_id: number
+  linkedin_bio?: string
+  recent_posts?: string
+  recent_funding?: string
+  job_change?: string
+  mutual_connections?: string
+  company_news?: string
+  ai_summary?: string
+  hooks: string[]
+  updated_at: string
+}
+
+export interface HookResult {
+  summary: string
+  hooks: string[]
+}
+
 export interface AnalyticsSummary {
   total_prospects: number
   priority_breakdown: Record<string, number>
@@ -151,12 +205,36 @@ export const prospectsApi = {
 }
 
 export const outreachApi = {
-  getTemplates: () => api.get('/outreach/templates').then(r => r.data),
+  // Templates
+  listTemplates: (params?: { channel?: string; segment?: string }) =>
+    api.get<OutreachTemplate[]>('/outreach/templates', { params }).then(r => r.data),
+  createTemplate: (data: Omit<OutreachTemplate, 'id' | 'is_default' | 'created_at'>) =>
+    api.post<OutreachTemplate>('/outreach/templates', data).then(r => r.data),
+  updateTemplate: (id: number, data: Partial<OutreachTemplate>) =>
+    api.patch<OutreachTemplate>(`/outreach/templates/${id}`, data).then(r => r.data),
+  deleteTemplate: (id: number) =>
+    api.delete(`/outreach/templates/${id}`).then(r => r.data),
+  previewTemplate: (id: number, mergeValues: Record<string, string>) =>
+    api.post<{ subject?: string; body: string; channel: string }>(
+      `/outreach/templates/${id}/preview`, mergeValues
+    ).then(r => r.data),
+  getMergeFields: () => api.get<MergeField[]>('/outreach/merge-fields').then(r => r.data),
+  // Research
+  getResearch: (prospectId: number) =>
+    api.get<ProspectResearch>(`/outreach/research/${prospectId}`).then(r => r.data),
+  upsertResearch: (prospectId: number, data: Partial<ProspectResearch>) =>
+    api.put<ProspectResearch>(`/outreach/research/${prospectId}`, data).then(r => r.data),
+  cacheHooks: (prospectId: number, summary: string, hooks: string[]) =>
+    api.post(`/outreach/research/${prospectId}/cache-hooks`, { summary, hooks }).then(r => r.data),
+  // Activities
+  getActivities: (prospectId: number) =>
+    api.get<OutreachActivity[]>(`/outreach/activities/${prospectId}`).then(r => r.data),
+  updateActivityStatus: (activityId: number, status: ActivityStatus) =>
+    api.patch(`/outreach/activities/${activityId}/status`, null, { params: { status } }).then(r => r.data),
+  logActivity: (data: unknown) => api.post('/outreach/send', data).then(r => r.data),
+  // Sequences (kept for other modules)
   listSequences: () => api.get('/outreach/sequences').then(r => r.data),
   createSequence: (data: unknown) => api.post('/outreach/sequences', data).then(r => r.data),
-  logActivity: (data: unknown) => api.post('/outreach/send', data).then(r => r.data),
-  getActivities: (prospectId: number) =>
-    api.get(`/outreach/activities/${prospectId}`).then(r => r.data),
 }
 
 export const captureApi = {
@@ -188,7 +266,7 @@ export const scheduleApi = {
 }
 
 export const aiApi = {
-  getHooks: (data: unknown) => api.post<{ hooks: string[] }>('/ai/hooks', data).then(r => r.data),
+  getHooks: (data: unknown) => api.post<HookResult>('/ai/hooks', data).then(r => r.data),
   draftMessage: (data: unknown) =>
     api.post<{ message: string }>('/ai/draft-message', data).then(r => r.data),
   transcribe: (blob: Blob, filename: string) => {

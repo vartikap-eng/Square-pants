@@ -13,14 +13,23 @@ client = AsyncOpenAI(api_key=settings.openai_api_key)
 HOOK_SYSTEM_PROMPT = """You are an expert B2B sales researcher helping a fintech/credit intelligence company
 craft highly personalized outreach hooks for conference prospects.
 
-Generate exactly 3 distinct, specific personalization hooks based on the provided LinkedIn data.
-Each hook should:
-- Reference a specific, concrete detail (not generic flattery)
-- Be 1-2 sentences max
-- Sound natural, not sales-y
-- Be relevant to credit risk, lending, financial operations, or fintech challenges
+Based on all provided LinkedIn and company data, return a JSON object with exactly two keys:
 
-Return ONLY a JSON array of 3 hook strings. No explanation."""
+"summary": A 2-3 sentence synthesis of what's most interesting or relevant about this prospect
+right now — their focus areas, challenges, recent moves, or context that makes them worth reaching out to.
+Write it as internal sales intel, not as a message to them.
+
+"hooks": An array of exactly 3 distinct opening lines for outreach messages. Each hook should:
+- Reference ONE specific, concrete detail from the data (funding round amount, specific post topic,
+  role change timing, mutual connection name, specific company news)
+- Be 1-2 sentences max, ready to drop into a message
+- Sound natural and human — not sales-y or flattering
+- Be relevant to credit risk, lending, financial operations, or fintech challenges
+- Each hook should use a DIFFERENT data point (don't repeat the same signal)
+
+Return ONLY valid JSON in this exact shape:
+{"summary": "...", "hooks": ["...", "...", "..."]}
+No markdown, no explanation."""
 
 MESSAGE_SYSTEM_PROMPT = """You are a B2B sales copywriter for a credit intelligence / fintech company attending a financial services conference.
 
@@ -67,13 +76,17 @@ Return ONLY a JSON object with these fields (use null for missing):
 
 
 async def generate_hooks(
-    linkedin_bio: str,
+    linkedin_bio: str = "",
     recent_posts: str = "",
     recent_funding: str = "",
     job_change: str = "",
+    mutual_connections: str = "",
+    company_news: str = "",
     prospect_name: str = "",
     company: str = "",
-) -> list[str]:
+    title: str = "",
+) -> dict:
+    """Returns {"summary": str, "hooks": [str, str, str]}"""
     context_parts = []
     if linkedin_bio:
         context_parts.append(f"LinkedIn Bio:\n{linkedin_bio}")
@@ -83,8 +96,15 @@ async def generate_hooks(
         context_parts.append(f"Recent Funding/News:\n{recent_funding}")
     if job_change:
         context_parts.append(f"Recent Job Change:\n{job_change}")
+    if mutual_connections:
+        context_parts.append(f"Mutual LinkedIn Connections:\n{mutual_connections}")
+    if company_news:
+        context_parts.append(f"Recent Company News:\n{company_news}")
 
-    user_content = f"Prospect: {prospect_name} at {company}\n\n" + "\n\n".join(context_parts)
+    user_content = (
+        f"Prospect: {prospect_name}, {title} at {company}\n\n"
+        + "\n\n".join(context_parts)
+    )
 
     response = await client.chat.completions.create(
         model="gpt-4o",
@@ -93,11 +113,10 @@ async def generate_hooks(
             {"role": "user", "content": user_content},
         ],
         temperature=0.7,
-        max_tokens=400,
+        max_tokens=600,
     )
 
     raw = response.choices[0].message.content.strip()
-    # Strip markdown code fences if present
     if raw.startswith("```"):
         raw = raw.split("```")[1]
         if raw.startswith("json"):
