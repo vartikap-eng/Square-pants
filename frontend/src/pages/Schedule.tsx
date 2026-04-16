@@ -5,6 +5,24 @@ import { useUIStore } from '@/store/uiStore'
 import { Calendar, Plus, Clock, MapPin, X, CheckCircle2, UserX, Trash2 } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
 
+// Build a Google Calendar "Add to Calendar" URL
+function buildGCalUrl(meeting: Meeting, title: string): string {
+  const fmt = (iso: string) =>
+    iso.replace(/[-:]/g, '').replace(/\.\d{3}/, '').replace('Z', 'Z')
+
+  const start = fmt(new Date(meeting.start_time).toISOString())
+  const end   = fmt(new Date(meeting.end_time).toISOString())
+
+  const params = new URLSearchParams({
+    action:   'TEMPLATE',
+    text:     title,
+    dates:    `${start}/${end}`,
+    location: meeting.location || '',
+    details:  meeting.notes || `Conference meeting — ${title}`,
+  })
+  return `https://calendar.google.com/calendar/render?${params.toString()}`
+}
+
 function MeetingCard({ meeting, onStatusChange, onDelete }: {
   meeting: Meeting
   onStatusChange: (status: MeetingStatus) => void
@@ -19,18 +37,21 @@ function MeetingCard({ meeting, onStatusChange, onDelete }: {
   const statusColor: Record<MeetingStatus, string> = {
     scheduled: 'bg-blue-100 text-blue-700',
     completed: 'bg-green-100 text-green-700',
-    no_show: 'bg-red-100 text-red-700',
+    no_show:   'bg-red-100 text-red-700',
     cancelled: 'bg-gray-100 text-gray-500',
   }
+
+  const meetingTitle = meeting.title
+    || (prospect ? `Meeting with ${prospect.first_name} ${prospect.last_name}` : 'Conference Meeting')
+
+  const gcalUrl = buildGCalUrl(meeting, meetingTitle)
 
   return (
     <div className={`card p-4 ${meeting.is_pre_booked ? 'border-l-4 border-l-brand-500' : ''}`}>
       <div className="flex items-start justify-between gap-3">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <p className="font-medium text-gray-900 text-sm">
-              {meeting.title || (prospect ? `${prospect.first_name} ${prospect.last_name}` : 'Meeting')}
-            </p>
+            <p className="font-medium text-gray-900 text-sm">{meetingTitle}</p>
             {meeting.is_pre_booked && (
               <span className="badge bg-brand-100 text-brand-700 text-xs">Pre-booked</span>
             )}
@@ -46,20 +67,33 @@ function MeetingCard({ meeting, onStatusChange, onDelete }: {
           <div className="flex items-center gap-3 mt-2 text-xs text-gray-500 flex-wrap">
             <span className="flex items-center gap-1">
               <Clock className="w-3 h-3" />
-              {format(parseISO(meeting.start_time), 'h:mm a')} – {format(parseISO(meeting.end_time), 'h:mm a')}
+              {format(parseISO(meeting.start_time), 'MMM d, h:mm a')} – {format(parseISO(meeting.end_time), 'h:mm a')}
             </span>
             {meeting.location && (
               <span className="flex items-center gap-1">
                 <MapPin className="w-3 h-3" /> {meeting.location}
               </span>
             )}
-            {meeting.owner && (
-              <span className="text-gray-400">{meeting.owner}</span>
-            )}
+            {meeting.owner && <span className="text-gray-400">{meeting.owner}</span>}
           </div>
 
           {meeting.notes && (
             <p className="text-xs text-gray-500 mt-2 italic">{meeting.notes}</p>
+          )}
+
+          {/* Google Calendar link */}
+          {meeting.status === 'scheduled' && (
+            <a
+              href={gcalUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 mt-3 text-xs text-blue-600 hover:text-blue-800 font-medium border border-blue-200 rounded-lg px-2.5 py-1 bg-blue-50 hover:bg-blue-100 transition-colors"
+            >
+              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M19 3h-1V1h-2v2H8V1H6v2H5c-1.11 0-1.99.9-1.99 2L3 19c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V8h14v11zM7 10h5v5H7z"/>
+              </svg>
+              Add to Google Calendar
+            </a>
           )}
         </div>
 

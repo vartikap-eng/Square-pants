@@ -128,6 +128,9 @@ export interface OutreachActivity {
   opened_at?: string
   replied_at?: string
   notes?: string
+  message_id?: string
+  recipient_email?: string
+  email_warning?: string   // set if email send failed but activity was still logged
   created_at: string
 }
 
@@ -237,6 +240,12 @@ export const outreachApi = {
   updateActivityStatus: (activityId: number, status: ActivityStatus) =>
     api.patch(`/outreach/activities/${activityId}/status`, null, { params: { status } }).then(r => r.data),
   logActivity: (data: unknown) => api.post('/outreach/send', data).then(r => r.data),
+  checkReplies: (eventId?: number) =>
+    api.post<{ checked: number; new_replies: number }>(
+      '/outreach/check-replies',
+      null,
+      { params: eventId ? { event_id: eventId } : {} }
+    ).then(r => r.data),
   // Sequences (kept for other modules)
   listSequences: () => api.get('/outreach/sequences').then(r => r.data),
   createSequence: (data: unknown) => api.post('/outreach/sequences', data).then(r => r.data),

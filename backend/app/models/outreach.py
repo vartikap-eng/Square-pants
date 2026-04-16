@@ -144,6 +144,8 @@ class OutreachActivity(SQLModel, table=True):
     opened_at: Optional[datetime] = None
     replied_at: Optional[datetime] = None
     notes: Optional[str] = None
+    message_id: Optional[str] = None  # SMTP Message-ID header for reply tracking
+    recipient_email: Optional[str] = None  # email address it was sent to
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 

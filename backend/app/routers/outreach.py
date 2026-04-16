@@ -4,6 +4,8 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
 
+from ..services.email_service import send_email, check_replies
+
 from ..database import get_session
 from ..models.outreach import (
     OutreachSequence, OutreachActivity,
@@ -368,9 +370,90 @@ def log_outreach_activity(
         sent_at=datetime.utcnow(),
     )
     session.add(activity)
+    session.flush()  # get the ID before commit so we can build the Message-ID
+
+    email_error: Optional[str] = None
+
+    # If channel is email, actually send it
+    if data.channel == OutreachChannel.email and data.body:
+        from ..models.prospect import Prospect
+        prospect = session.get(Prospect, data.prospect_id)
+        recipient = prospect.email if prospect else None
+
+        if recipient:
+            activity.recipient_email = recipient
+            success, message_id, err = send_email(
+                to_address=recipient,
+                subject=data.subject or "(no subject)",
+                body=data.body,
+                prospect_id=data.prospect_id,
+                activity_id=activity.id,
+            )
+            if success:
+                activity.message_id = message_id
+            else:
+                email_error = err
+        else:
+            email_error = "Prospect has no email address on file"
+
+    session.add(activity)
     session.commit()
     session.refresh(activity)
-    return activity
+
+    result = activity.__dict__.copy()
+    result.pop("_sa_instance_state", None)
+    if email_error:
+        result["email_warning"] = email_error
+    return result
+
+
+@router.post("/check-replies")
+def check_email_replies(
+    event_id: Optional[int] = None,
+    session: Session = Depends(get_session),
+):
+    """
+    Poll Gmail IMAP for replies to any sent email activities.
+    Updates activity status to 'replied' when a reply is found.
+    Returns count of newly detected replies.
+    """
+    query = (
+        select(OutreachActivity)
+        .where(
+            OutreachActivity.channel == OutreachChannel.email,
+            OutreachActivity.message_id.isnot(None),
+            OutreachActivity.status != ActivityStatus.replied,
+        )
+    )
+    activities = session.exec(query).all()
+
+    if not activities:
+        return {"checked": 0, "new_replies": 0}
+
+    message_ids = [a.message_id for a in activities if a.message_id]
+    replies = check_replies(message_ids)
+
+    # Build lookup: message_id → replied_at
+    reply_map = {mid: replied_at for mid, replied_at in replies}
+
+    updated = 0
+    for activity in activities:
+        if activity.message_id in reply_map:
+            activity.status = ActivityStatus.replied
+            activity.replied_at = reply_map[activity.message_id]
+            session.add(activity)
+
+            # Also update prospect status if still just 'contacted'
+            from ..models.prospect import Prospect, ProspectStatus
+            prospect = session.get(Prospect, activity.prospect_id)
+            if prospect and prospect.status in ("new", "contacted"):
+                prospect.status = ProspectStatus.replied
+                session.add(prospect)
+
+            updated += 1
+
+    session.commit()
+    return {"checked": len(activities), "new_replies": updated}
 
 
 @router.get("/activities/{prospect_id}")
